@@ -19,42 +19,49 @@ function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function validateConfig(source) {
+function validateConfig(source, providerId) {
   const errors = [];
   const parsed = source.trim() ? parse(source, errors, { allowTrailingComma: true }) : {};
   if (errors.length) throw new Error("OpenCode's config file has invalid JSON/JSONC; fix it before setting up the app.");
   if (!isObject(parsed)) throw new Error("OpenCode's config file must contain a JSON object.");
-  for (const [key, value] of [["provider", parsed.provider], ["jev-gateway", parsed.provider?.[PROVIDER_ID]], ["options", parsed.provider?.[PROVIDER_ID]?.options], ["models", parsed.provider?.[PROVIDER_ID]?.models]]) {
+  for (const [key, value] of [["provider", parsed.provider], [providerId, parsed.provider?.[providerId]], ["options", parsed.provider?.[providerId]?.options], ["models", parsed.provider?.[providerId]?.models]]) {
     if (value !== undefined && !isObject(value)) throw new Error(`OpenCode config setting ${key} must be a JSON object.`);
   }
   return parsed;
 }
 
 /** Merge the gateway defaults without dropping existing JSONC comments or unrelated settings. */
-export function mergeOpenCodeDesktopConfig(source, origin, model) {
-  if (!model?.trim()) throw new Error("OpenCode model ID cannot be empty.");
+export function mergeOpenCodeDesktopConfig(source, origin, route) {
+  if (!route?.providerId?.trim() || !route?.modelId?.trim() || !route?.model?.trim()) {
+    throw new Error("OpenCode provider and model IDs cannot be empty.");
+  }
+  const { providerId, modelId, model } = route;
   const startingText = source.trim() ? source : "{}\n";
-  const parsed = validateConfig(startingText);
-  const provider = parsed.provider?.[PROVIDER_ID];
-  if (provider?.models?.[model] !== undefined && !isObject(provider.models[model])) {
-    throw new Error(`OpenCode config model ${PROVIDER_ID}/${model} must be a JSON object.`);
+  const parsed = validateConfig(startingText, providerId);
+  const provider = parsed.provider?.[providerId];
+  if (provider?.models?.[modelId] !== undefined && !isObject(provider.models[modelId])) {
+    throw new Error(`OpenCode config model ${model} must be a JSON object.`);
   }
 
   const newline = source.includes("\r\n") ? "\r\n" : "\n";
   const formattingOptions = { insertSpaces: true, tabSize: 2, eol: newline };
   const updates = [
     [["$schema"], "https://opencode.ai/config.json"],
-    [["model"], `${PROVIDER_ID}/${model}`],
-    [["small_model"], `${PROVIDER_ID}/${model}`],
-    [["provider", PROVIDER_ID, "npm"], "@ai-sdk/openai-compatible"],
-    [["provider", PROVIDER_ID, "name"], "Jev Gateway"],
-    [["provider", PROVIDER_ID, "options", "baseURL"], `${origin}/v1`],
-    [["provider", PROVIDER_ID, "options", "apiKey"], "{env:OPENAI_API_KEY}"],
-    [["provider", PROVIDER_ID, "models", model, "name"], `Jev Gateway (${model})`],
+    [["model"], model],
+    [["small_model"], model],
+    [["provider", providerId, "options", "baseURL"], `${origin}/v1`],
   ];
+  if (providerId === PROVIDER_ID) {
+    updates.push(
+      [["provider", providerId, "npm"], "@ai-sdk/openai-compatible"],
+      [["provider", providerId, "name"], "Jev Gateway"],
+      [["provider", providerId, "options", "apiKey"], `{env:${route.apiKeyEnv ?? "OPENAI_API_KEY"}}`],
+      [["provider", providerId, "models", modelId, "name"], `Jev Gateway (${modelId})`],
+    );
+  }
   let text = startingText;
   for (const [path, value] of updates) text = applyEdits(text, modify(text, path, value, { formattingOptions }));
-  validateConfig(text);
+  validateConfig(text, providerId);
   return { text, changed: text !== source };
 }
 
@@ -78,12 +85,12 @@ function writeAtomically(file, text, mode) {
   }
 }
 
-export function configureOpenCodeDesktopApp(origin, model) {
+export function configureOpenCodeDesktopApp(origin, route) {
   const directory = configHome();
   const file = configPath();
   const existed = existsSync(file);
   const before = existed ? readFileSync(file, "utf8") : "";
-  const result = mergeOpenCodeDesktopConfig(before, origin, model);
+  const result = mergeOpenCodeDesktopConfig(before, origin, route);
   if (!result.changed) return { changed: false, configPath: file };
 
   mkdirSync(directory, { recursive: true });
@@ -159,6 +166,10 @@ async function restartOnWindows({ execCommand, launchProcess, wait }) {
   const payload = Buffer.from(JSON.stringify(app), "utf8").toString("base64");
   const script = `$app = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json; if ($app.arguments) { Start-Process -FilePath $app.target -ArgumentList $app.arguments -WorkingDirectory $app.workingDirectory } else { Start-Process -FilePath $app.target -WorkingDirectory $app.workingDirectory }`;
   await launchProcess("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { env: process.env });
+  for (let attempt = 0; attempt < 40 && windowsProcessCount(execCommand) === 0; attempt++) await wait(500);
+  if (windowsProcessCount(execCommand) === 0) {
+    return { restarted: false, wasOpen, reason: "OpenCode Desktop did not start; open it manually to load the new configuration." };
+  }
   return { restarted: true, wasOpen };
 }
 
@@ -190,7 +201,7 @@ async function restartOnMac({ execCommand, launchProcess, wait }) {
   return { restarted: true, wasOpen };
 }
 
-/** Restart using the environment that ran setup so OPENAI_API_KEY remains available to the app. */
+/** Restart with the environment from setup; OpenCode resolves saved provider credentials itself. */
 export async function restartOpenCodeDesktopApp(dependencies = {}) {
   const deps = {
     platform: process.platform,

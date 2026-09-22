@@ -11,8 +11,8 @@ import { vi } from "vitest";
 const clients = await import("../bin/clients.mjs");
 
 type OpenCodeApp = {
-  mergeOpenCodeDesktopConfig?: (source: string, origin: string, model: string) => { text: string; changed: boolean };
-  configureOpenCodeDesktopApp?: (origin: string, model: string) => { changed: boolean; configPath: string; backupPath?: string };
+  mergeOpenCodeDesktopConfig?: (source: string, origin: string, route: OpenCodeRoute) => { text: string; changed: boolean };
+  configureOpenCodeDesktopApp?: (origin: string, route: OpenCodeRoute) => { changed: boolean; configPath: string; backupPath?: string };
   restartOpenCodeDesktopApp?: (dependencies?: {
     platform?: string;
     wait?: (milliseconds: number) => Promise<void>;
@@ -20,6 +20,24 @@ type OpenCodeApp = {
     launchProcess?: (command: string, args: string[], options?: { env?: NodeJS.ProcessEnv }) => Promise<void>;
   }) => Promise<{ restarted: boolean; wasOpen?: boolean; reason?: string }>;
 };
+
+interface OpenCodeRoute {
+  providerId: string;
+  modelId: string;
+  model: string;
+  upstream: string;
+  credentialSource: string;
+  apiKeyEnv?: string;
+}
+
+const legacyRoute = (modelId = "gpt-5"): OpenCodeRoute => ({
+  providerId: "jev-gateway",
+  modelId,
+  model: `jev-gateway/${modelId}`,
+  upstream: "https://api.openai.com/v1",
+  credentialSource: "environment",
+  apiKeyEnv: "OPENAI_API_KEY",
+});
 
 const appModulePath = "../bin/opencode-app.mjs";
 async function importAppModule() {
@@ -32,10 +50,12 @@ async function withTemporaryOpenCodeHome(run: (home: string, app: OpenCodeApp | 
     HOME: process.env.HOME,
     USERPROFILE: process.env.USERPROFILE,
     XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+    XDG_DATA_HOME: process.env.XDG_DATA_HOME,
   };
   process.env.HOME = home;
   process.env.USERPROFILE = home;
   process.env.XDG_CONFIG_HOME = join(home, ".config");
+  process.env.XDG_DATA_HOME = join(home, ".local", "share");
   vi.resetModules();
   try {
     run(home, await importAppModule());
@@ -78,7 +98,7 @@ describe("OpenCode Desktop setup", () => {
 }`;
 
     const app = await importAppModule();
-    const result = app?.mergeOpenCodeDesktopConfig?.(source, "http://127.0.0.1:8791", "gpt-5");
+    const result = app?.mergeOpenCodeDesktopConfig?.(source, "http://127.0.0.1:8791", legacyRoute());
     expect(result).toBeDefined();
     if (!result) return;
 
@@ -99,8 +119,27 @@ describe("OpenCode Desktop setup", () => {
       "gpt-5": { name: "Jev Gateway (gpt-5)" },
     });
 
-    const repeated = app?.mergeOpenCodeDesktopConfig?.(result.text, "http://127.0.0.1:8791", "gpt-5");
+    const repeated = app?.mergeOpenCodeDesktopConfig?.(result.text, "http://127.0.0.1:8791", legacyRoute());
     expect(repeated).toEqual({ text: result.text, changed: false });
+  });
+
+  it("uses a stored OpenRouter provider as the default without writing its secret", async () => {
+    await withTemporaryOpenCodeHome((home, app) => {
+      const route: OpenCodeRoute = {
+        providerId: "openrouter",
+        modelId: "openai/gpt-5",
+        model: "openrouter/openai/gpt-5",
+        upstream: "https://openrouter.ai/api/v1",
+        credentialSource: "opencode-auth-store",
+      };
+      const result = app?.configureOpenCodeDesktopApp?.("http://127.0.0.1:8791", route);
+      expect(result?.changed).toBe(true);
+      const config = parse(readFileSync(join(home, ".config", "opencode", "opencode.json"), "utf8")) as any;
+      expect(config.model).toBe("openrouter/openai/gpt-5");
+      expect(config.small_model).toBe("openrouter/openai/gpt-5");
+      expect(config.provider.openrouter.options).toEqual({ baseURL: "http://127.0.0.1:8791/v1" });
+      expect(JSON.stringify(config)).not.toContain("test-only-secret");
+    });
   });
 
   it("backs up and updates an existing global JSONC config only once", async () => {
@@ -111,7 +150,7 @@ describe("OpenCode Desktop setup", () => {
       const original = '{\n  // User preferences stay here.\n  "autoupdate": false,\n}\n';
       writeFileSync(configPath, original, "utf8");
 
-      const result = app?.configureOpenCodeDesktopApp?.("http://127.0.0.1:8791", "gpt-5-mini");
+      const result = app?.configureOpenCodeDesktopApp?.("http://127.0.0.1:8791", legacyRoute("gpt-5-mini"));
       expect(result).toBeDefined();
       if (!result) return;
       expect(result.changed).toBe(true);
@@ -124,7 +163,7 @@ describe("OpenCode Desktop setup", () => {
       expect(config.autoupdate).toBe(false);
 
       const updated = readFileSync(configPath, "utf8");
-      expect(app?.configureOpenCodeDesktopApp?.("http://127.0.0.1:8791", "gpt-5-mini")).toMatchObject({ changed: false, configPath });
+      expect(app?.configureOpenCodeDesktopApp?.("http://127.0.0.1:8791", legacyRoute("gpt-5-mini"))).toMatchObject({ changed: false, configPath });
       expect(readFileSync(configPath, "utf8")).toBe(updated);
       expect(existsSync(result.backupPath!)).toBe(true);
     });
@@ -132,7 +171,7 @@ describe("OpenCode Desktop setup", () => {
 
   it("creates the normal global JSON config when no OpenCode config exists", async () => {
     await withTemporaryOpenCodeHome((home, app) => {
-      const result = app?.configureOpenCodeDesktopApp?.("http://127.0.0.1:8791", "gpt-5");
+      const result = app?.configureOpenCodeDesktopApp?.("http://127.0.0.1:8791", legacyRoute());
       expect(result).toBeDefined();
       if (!result) return;
       expect(result.changed).toBe(true);
@@ -159,7 +198,7 @@ describe("OpenCode Desktop setup", () => {
     try {
       const app = await importAppModule();
       process.env.XDG_CONFIG_HOME = join(home, "custom-config");
-      const result = app?.configureOpenCodeDesktopApp?.("http://127.0.0.1:8791", "gpt-5");
+      const result = app?.configureOpenCodeDesktopApp?.("http://127.0.0.1:8791", legacyRoute());
       expect(result?.configPath).toBe(join(home, "custom-config", "opencode", "opencode.json"));
     } finally {
       vi.resetModules();
@@ -178,7 +217,7 @@ describe("OpenCode Desktop setup", () => {
       writeFileSync(join(configHome, "opencode.json"), "{}\n");
       writeFileSync(join(configHome, "opencode.jsonc"), "{}\n");
 
-      expect(() => app?.configureOpenCodeDesktopApp?.("http://127.0.0.1:8791", "gpt-5")).toThrow(/both.*opencode\.json/i);
+      expect(() => app?.configureOpenCodeDesktopApp?.("http://127.0.0.1:8791", legacyRoute())).toThrow(/both.*opencode\.json/i);
       expect(readFileSync(join(configHome, "opencode.json"), "utf8")).toBe("{}\n");
       expect(readFileSync(join(configHome, "opencode.jsonc"), "utf8")).toBe("{}\n");
     });
@@ -191,10 +230,10 @@ describe("OpenCode Desktop setup", () => {
     expect(help).toContain("OpenCode Desktop app");
   });
 
-  it("does not configure the app when OPENAI_API_KEY is unavailable", () => {
+  it("does not configure the app when no supported API credential is available", () => {
     const home = mkdtempSync(join(tmpdir(), "jev-opencode-no-key-"));
     const launcherBin = fileURLToPath(new URL("../bin/jev-opencode.mjs", import.meta.url));
-    const env: NodeJS.ProcessEnv = { ...process.env, USERPROFILE: home, APPDATA: join(home, "AppData", "Roaming"), JEV_SKIP_PROJECT_ENV: "1", JEV_OPENCODE_PORT: "0" };
+    const env: NodeJS.ProcessEnv = { ...process.env, USERPROFILE: home, APPDATA: join(home, "AppData", "Roaming"), XDG_CONFIG_HOME: join(home, ".config"), XDG_DATA_HOME: join(home, ".local", "share"), JEV_SKIP_PROJECT_ENV: "1", JEV_OPENCODE_PORT: "0" };
     delete env.OPENAI_API_KEY;
     delete env.TYPESAFE_API_KEY;
     delete env.OPENROUTER_API_KEY;
@@ -203,8 +242,8 @@ describe("OpenCode Desktop setup", () => {
     try {
       const result = spawnSync(process.execPath, [launcherBin, "--setup-app"], { encoding: "utf8", env, timeout: 30_000 });
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("OPENAI_API_KEY");
-      expect(result.stderr).toContain("No OpenCode configuration was changed");
+      expect(result.stderr).toContain("No supported OpenAI or OpenRouter API credential");
+      expect(result.stderr).toContain("No OpenCode Desktop app configuration was changed");
       expect(existsSync(join(home, ".config", "opencode", "opencode.json"))).toBe(false);
     } finally {
       rmSync(home, { recursive: true, force: true });
@@ -238,7 +277,10 @@ describe("OpenCode Desktop setup", () => {
           if (script.includes("@(Get-Process -Name OpenCode")) return desktopOpen ? "1" : "0";
           throw new Error(`Unexpected command: ${script}`);
         },
-        launchProcess: async (_command: string, _args: string[], options) => { launchOptions = options; },
+        launchProcess: async (_command: string, _args: string[], options) => {
+          launchOptions = options;
+          desktopOpen = true;
+        },
       });
 
       expect(result).toEqual({ restarted: true, wasOpen: true });
@@ -249,5 +291,29 @@ describe("OpenCode Desktop setup", () => {
       if (previousApiKey === undefined) delete process.env.OPENAI_API_KEY;
       else process.env.OPENAI_API_KEY = previousApiKey;
     }
+  });
+
+  it("reports a failed restart when the desktop process never appears", async () => {
+    const app = await importAppModule();
+    expect(app?.restartOpenCodeDesktopApp).toBeTypeOf("function");
+    if (!app?.restartOpenCodeDesktopApp) return;
+
+    let launchAttempted = false;
+    const result = await app.restartOpenCodeDesktopApp({
+      platform: "win32",
+      wait: async () => {},
+      execCommand: (_command: string, args: string[]) => {
+        const script = args.at(-1) ?? "";
+        if (script.includes("CreateShortcut")) {
+          return JSON.stringify({ target: process.execPath, arguments: "", workingDirectory: process.cwd() });
+        }
+        if (script.includes("@(Get-Process -Name OpenCode")) return "0";
+        return "";
+      },
+      launchProcess: async () => { launchAttempted = true; },
+    });
+
+    expect(launchAttempted).toBe(true);
+    expect(result).toMatchObject({ restarted: false, wasOpen: false });
   });
 });

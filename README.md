@@ -230,10 +230,11 @@ This starts or reuses the gateway, updates the global OpenCode config with the g
 default model in `$XDG_CONFIG_HOME/opencode/opencode.json(c)` (by default,
 `~/.config/opencode/opencode.json(c)`), saves a one-time backup of an existing config in
 `~/.jev-gateway`, and restarts the desktop app automatically on Windows and macOS. On Linux, restart
-the app manually with `OPENAI_API_KEY` available to it. Existing settings and JSONC comments are
-preserved. The app uses the same `OPENAI_API_KEY` environment value as the CLI; setup does not copy
-the key into the config. Make sure this variable is set in the terminal running setup; otherwise,
-setup stops before changing the OpenCode config.
+the app manually after setup. Existing settings and JSONC comments are preserved. Setup uses an
+OpenAI API key from `OPENAI_API_KEY` when available; otherwise it reuses a saved OpenAI API or
+OpenRouter API credential from OpenCode. It does not copy saved credentials into the config. OpenAI
+OAuth sign-in is not suitable for this route because OpenCode sends those requests directly to
+ChatGPT instead of honoring the gateway URL.
 
 OpenCode shares this global config between Desktop and the plain `opencode` CLI, so both use the
 gateway as their default after setup. The `jev-opencode` CLI launcher continues to work as before.
@@ -257,9 +258,10 @@ jev-opencode --dashboard      # open the monitoring dashboard in your browser
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `TYPESAFE_API_KEY` | required | Authorizes the Jev tool-selection call only. Never sent as the LLM upstream credential |
-| `OPENAI_API_KEY` | your key | Your LLM credential. OpenCode resolves `{env:OPENAI_API_KEY}` and the gateway forwards it untouched to the LLM upstream |
-| `JEV_OPENCODE_UPSTREAM_BASE_URL` | `https://api.openai.com/v1` | Where the gateway forwards OpenCode traffic: your LLM provider, not the TypeSafe endpoint |
-| `JEV_OPENCODE_MODEL` | `gpt-5` | Model selected as `jev-gateway/<model>` |
+| `OPENAI_API_KEY` | unset | Optional OpenAI API credential. If set, it is used for OpenCode requests; otherwise setup can use a saved OpenAI API or OpenRouter API credential |
+| OpenCode saved API key | OpenAI or OpenRouter | Read by OpenCode from its own auth store; the gateway forwards the request's authorization header without copying the key into config |
+| `JEV_OPENCODE_UPSTREAM_BASE_URL` | follows the selected credential | Override where the gateway forwards OpenCode traffic |
+| `JEV_OPENCODE_MODEL` | `gpt-5` | Model selected under the provider with the supported saved API credential |
 | `JEV_OPENCODE_PORT` | `8791` | Router port for OpenCode |
 
 The gateway forwards the client's `Authorization` header to the LLM upstream. A launcher-spawned
@@ -273,10 +275,11 @@ Keep the gateway running, then point plain `opencode` at it with a file, so no s
 
 ```bash
 jev-opencode --start
-jev-opencode --print-config   # copy the opencode.json snippet it prints
+jev-opencode --print-config   # copy the provider snippet it prints for your saved credential
 ```
 
-Chat Completions (the launcher default, stable `@ai-sdk/openai-compatible`):
+For example, with `OPENAI_API_KEY` set, the launcher prints this custom-provider configuration
+(the stable `@ai-sdk/openai-compatible` Chat Completions route):
 
 ```json
 {
@@ -324,8 +327,10 @@ Responses (stable `@ai-sdk/openai` instead):
 }
 ```
 
-Save either block as `opencode.json` in the project root or `~/.config/opencode/opencode.json`,
-then select it with `opencode --model jev-gateway/gpt-5`.
+Save the printed block as `opencode.json` in the project root or
+`~/.config/opencode/opencode.json`, then select the model ID shown by `--print-config`. If setup
+uses a saved OpenRouter credential, the printed config selects OpenRouter's built-in provider and
+overrides its `baseURL` to the gateway; OpenCode reads the key from its auth store automatically.
 
 `baseURL` includes `/v1`; OpenCode and the AI SDK append the rest (`/chat/completions` for
 `@ai-sdk/openai-compatible`, `/responses` for `@ai-sdk/openai`). Both endpoints are routed by the
