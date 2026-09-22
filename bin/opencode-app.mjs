@@ -105,8 +105,8 @@ export function configureOpenCodeDesktopApp(origin, route) {
   return { changed: true, configPath: file, backupPath: existed ? backup : undefined };
 }
 
-function exec(command, args) {
-  return execFileSync(command, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 10_000, windowsHide: true }).trim();
+function exec(command, args, options = {}) {
+  return execFileSync(command, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 10_000, windowsHide: true, ...options }).trim();
 }
 
 function launch(command, args, options = {}) {
@@ -164,8 +164,8 @@ async function restartOnWindows({ execCommand, launchProcess, wait }) {
     if (windowsProcessCount(execCommand) > 0) return { restarted: false, reason: "OpenCode Desktop did not close gracefully; it was left running." };
   }
   const payload = Buffer.from(JSON.stringify(app), "utf8").toString("base64");
-  const script = `$app = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json; if ($app.arguments) { Start-Process -FilePath $app.target -ArgumentList $app.arguments -WorkingDirectory $app.workingDirectory } else { Start-Process -FilePath $app.target -WorkingDirectory $app.workingDirectory }`;
-  await launchProcess("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { env: process.env });
+  const script = `$app = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json; $startOptions = @{ FilePath = $app.target; PassThru = $true; ErrorAction = 'Stop' }; if ($app.arguments) { $startOptions.ArgumentList = $app.arguments }; if ($app.workingDirectory) { $startOptions.WorkingDirectory = $app.workingDirectory }; $started = Start-Process @startOptions; if (-not $started) { throw 'OpenCode Desktop did not start.' }; @{pid=$started.Id} | ConvertTo-Json -Compress`;
+  execCommand("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { env: process.env });
   for (let attempt = 0; attempt < 40 && windowsProcessCount(execCommand) === 0; attempt++) await wait(500);
   if (windowsProcessCount(execCommand) === 0) {
     return { restarted: false, wasOpen, reason: "OpenCode Desktop did not start; open it manually to load the new configuration." };

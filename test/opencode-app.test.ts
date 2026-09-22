@@ -16,7 +16,7 @@ type OpenCodeApp = {
   restartOpenCodeDesktopApp?: (dependencies?: {
     platform?: string;
     wait?: (milliseconds: number) => Promise<void>;
-    execCommand?: (command: string, args: string[]) => string;
+    execCommand?: (command: string, args: string[], options?: { env?: NodeJS.ProcessEnv }) => string;
     launchProcess?: (command: string, args: string[], options?: { env?: NodeJS.ProcessEnv }) => Promise<void>;
   }) => Promise<{ restarted: boolean; wasOpen?: boolean; reason?: string }>;
 };
@@ -250,7 +250,7 @@ describe("OpenCode Desktop setup", () => {
     }
   });
 
-  it("gracefully restarts only OpenCode Desktop and passes the CLI environment to it", async () => {
+  it("gracefully restarts only OpenCode Desktop with the setup environment", async () => {
     const app = await importAppModule();
     expect(app?.restartOpenCodeDesktopApp).toBeTypeOf("function");
     if (!app?.restartOpenCodeDesktopApp) return;
@@ -264,7 +264,7 @@ describe("OpenCode Desktop setup", () => {
       const result = await app.restartOpenCodeDesktopApp({
         platform: "win32",
         wait: async () => {},
-        execCommand: (_command: string, args: string[]) => {
+        execCommand: (_command: string, args: string[], options?: any) => {
           const script = args.at(-1) ?? "";
           commands.push(script);
           if (script.includes("CreateShortcut")) {
@@ -274,18 +274,20 @@ describe("OpenCode Desktop setup", () => {
             desktopOpen = false;
             return "";
           }
+          if (script.includes("$started = Start-Process @startOptions")) {
+            launchOptions = options;
+            desktopOpen = true;
+            return '{"pid":1234}';
+          }
           if (script.includes("@(Get-Process -Name OpenCode")) return desktopOpen ? "1" : "0";
           throw new Error(`Unexpected command: ${script}`);
-        },
-        launchProcess: async (_command: string, _args: string[], options) => {
-          launchOptions = options;
-          desktopOpen = true;
         },
       });
 
       expect(result).toEqual({ restarted: true, wasOpen: true });
       expect(commands.some((command) => command.includes("Get-Process -Name OpenCode"))).toBe(true);
       expect(commands.some((command) => command.includes("opencode-cli"))).toBe(false);
+      expect(commands.some((command) => command.includes("$started = Start-Process @startOptions"))).toBe(true);
       expect(launchOptions.env.OPENAI_API_KEY).toBe("local-test-key");
     } finally {
       if (previousApiKey === undefined) delete process.env.OPENAI_API_KEY;
@@ -307,10 +309,13 @@ describe("OpenCode Desktop setup", () => {
         if (script.includes("CreateShortcut")) {
           return JSON.stringify({ target: process.execPath, arguments: "", workingDirectory: process.cwd() });
         }
+        if (script.includes("$started = Start-Process @startOptions")) {
+          launchAttempted = true;
+          return "";
+        }
         if (script.includes("@(Get-Process -Name OpenCode")) return "0";
         return "";
       },
-      launchProcess: async () => { launchAttempted = true; },
     });
 
     expect(launchAttempted).toBe(true);
