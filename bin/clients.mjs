@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { configureCodexDesktopApp, restartCodexDesktopApp } from "./codex-app.mjs";
+import { configureOpenCodeDesktopApp, restartOpenCodeDesktopApp } from "./opencode-app.mjs";
 
 /** Codex talks to a different backend depending on how the user logged in. */
 function codexUpstream() {
@@ -121,9 +122,12 @@ function opencodeInlineConfig(origin) {
 export const opencode = {
   name: "jev-opencode",
   client: "opencode",
+  appLabel: "OpenCode Desktop app",
   portEnv: "JEV_OPENCODE_PORT",
   defaultPort: 8791,
   upstream: opencodeUpstream,
+  setupApp: (origin) => configureOpenCodeDesktopApp(origin, opencodeModel()),
+  restartApp: restartOpenCodeDesktopApp,
   upstreamHelp:
     "JEV_OPENCODE_UPSTREAM_BASE_URL   where OpenCode traffic goes (default https://api.openai.com/v1)\n" +
     "JEV_OPENCODE_MODEL               model selected as jev-gateway/<model> (default gpt-5)",

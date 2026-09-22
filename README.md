@@ -57,7 +57,8 @@ jev-codex --dashboard
 
 Your existing login remains in use. By default, the launchers do not change client config files.
 By default, only sessions started with the `jev-` commands go through the gateway. Running
-`jev-codex --setup-app` opts the Codex desktop app and default `codex` CLI into it as well.
+`jev-codex --setup-app` or `jev-opencode --setup-app` opts the matching desktop app and its shared
+default CLI configuration into the gateway as well.
 
 ## What to expect
 
@@ -74,7 +75,7 @@ By default, only sessions started with the `jev-` commands go through the gatewa
 
 ## Commands
 
-Most commands work with `jev-codex`, `jev-claude`, `jev-opencode` and `jev-gemini`; `--setup-app` is Codex-only.
+Most commands work with `jev-codex`, `jev-claude`, `jev-opencode` and `jev-gemini`; `--setup-app` is available for Codex and OpenCode.
 
 | Command | What it does |
 | --- | --- |
@@ -88,6 +89,7 @@ Most commands work with `jev-codex`, `jev-claude`, `jev-opencode` and `jev-gemin
 | `jev-codex --stop` | Stop the background gateway (close your sessions first) |
 | `jev-codex --setup` | Choose where to reach Jev again, or change the key |
 | `jev-codex --setup-app` | Configure the Codex desktop app, start the gateway, and restart the app |
+| `jev-opencode --setup-app` | Configure OpenCode Desktop, start the gateway, and restart the app |
 | `jev-codex --print-config` | Print settings to point plain `codex` at the gateway permanently |
 | `jev-codex --gateway-help` | List all of the above |
 
@@ -210,16 +212,38 @@ jev-opencode   # use it exactly like `opencode`
 ```
 
 That starts the gateway on `http://127.0.0.1:8791` if needed, then runs `opencode` through it
-with a `jev-gateway` custom provider injected via `OPENCODE_CONFIG_CONTENT`. Your
-`~/.config/opencode` files are never written, and every `opencode` flag (including `-m`) forwards
-untouched. The launcher uses stable `@ai-sdk/openai-compatible`, so OpenCode speaks
+with a `jev-gateway` custom provider injected via `OPENCODE_CONFIG_CONTENT`. The CLI launcher does
+not write your OpenCode config files, and every `opencode` flag (including `-m`) forwards untouched.
+The launcher uses stable `@ai-sdk/openai-compatible`, so OpenCode speaks
 `POST /v1/chat/completions` off `http://127.0.0.1:8791/v1` by default, an endpoint the gateway
 already routes.
+
+### OpenCode Desktop
+
+Run one command to configure OpenCode Desktop:
+
+```bash
+jev-opencode --setup-app
+```
+
+This starts or reuses the gateway, updates the global OpenCode config with the gateway provider and
+default model in `$XDG_CONFIG_HOME/opencode/opencode.json(c)` (by default,
+`~/.config/opencode/opencode.json(c)`), saves a one-time backup of an existing config in
+`~/.jev-gateway`, and restarts the desktop app automatically on Windows and macOS. On Linux, restart
+the app manually with `OPENAI_API_KEY` available to it. Existing settings and JSONC comments are
+preserved. The app uses the same `OPENAI_API_KEY` environment value as the CLI; setup does not copy
+the key into the config.
+
+OpenCode shares this global config between Desktop and the plain `opencode` CLI, so both use the
+gateway as their default after setup. The `jev-opencode` CLI launcher continues to work as before.
+Keep the gateway running while using the gateway model. A project-level OpenCode config can choose
+its own model and override the global default.
 
 Manage it like the other launchers:
 
 ```bash
 jev-opencode --gateway-help   # list launcher commands (`--help` stays opencode's own help)
+jev-opencode --setup-app      # configure OpenCode Desktop and its shared CLI default
 jev-opencode --print-config   # opencode.json snippet to point plain `opencode` at the gateway
 jev-opencode --start          # start the gateway without opening opencode
 jev-opencode --stop           # stop the background gateway

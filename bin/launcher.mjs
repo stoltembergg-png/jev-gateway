@@ -27,7 +27,8 @@ const ENV_FILES = [...(FROM_SOURCE && !process.env.JEV_SKIP_PROJECT_ENV ? [join(
  * @param {(origin: string) => string[]} [spec.args]   extra leading arguments for the client
  * @param {(origin: string) => Record<string, string>} [spec.env]  extra environment for the client
  * @param {(origin: string) => string} spec.configHelp  how to wire the client up permanently
- * @param {(origin: string) => {changed: boolean, configPath: string, backupPath?: string}} [spec.setupApp] configure Codex desktop
+ * @param {string} [spec.appLabel] friendly desktop app name, e.g. "Codex desktop app"
+ * @param {(origin: string) => {changed: boolean, configPath: string, backupPath?: string}} [spec.setupApp] configure the desktop app
  * @param {() => Promise<{restarted: boolean, wasOpen?: boolean, reason?: string}>} [spec.restartApp] restart the desktop app
  */
 /** Load the key for Jev and friends; real environment variables win over both files. */
@@ -45,8 +46,9 @@ export async function runLauncher(spec) {
   const origin = `http://127.0.0.1:${port}`;
   const logFile = join(STATE_DIR, `${spec.client}.log`);
   const pidFile = join(STATE_DIR, `${spec.client}.pid`);
+  const appLabel = spec.appLabel ?? `${spec.client} desktop app`;
   const appSetupHelp = spec.setupApp
-    ? `  ${spec.name} --setup-app      configure Codex app, start gateway, and restart it (Windows/macOS)\n`
+    ? `  ${spec.name} --setup-app      configure ${appLabel}, start gateway, and restart it (Windows/macOS)\n`
     : "";
 
   const help = `${spec.name}: ${spec.client} with tool selection routed through Jev
@@ -204,28 +206,28 @@ Environment (or ${ENV_FILES.at(-1)}):
     return;
   }
   if (flag === "--setup-app") {
-    if (!spec.setupApp) return console.error(`${spec.name}: --setup-app is only available with jev-codex.`);
+    if (!spec.setupApp) return console.error(`${spec.name}: --setup-app is not available for ${spec.client}.`);
     await ensureRouter();
     let configured;
     try {
       configured = await spec.setupApp(origin);
     } catch (error) {
       process.exitCode = 1;
-      return console.error(`${spec.name}: could not configure Codex desktop: ${error.message}`);
+      return console.error(`${spec.name}: could not configure ${appLabel}: ${error.message}`);
     }
-    console.log(`${spec.name}: Codex desktop configuration ${configured.changed ? "updated" : "already points to the gateway"} in ${configured.configPath}.`);
+    console.log(`${spec.name}: ${appLabel} configuration ${configured.changed ? "updated" : "already points to the gateway"} in ${configured.configPath}.`);
     if (configured.backupPath) console.log(`${spec.name}: previous config saved to ${configured.backupPath}.`);
     try {
       const restarted = await spec.restartApp?.();
       if (restarted?.restarted) {
-        console.log(restarted.wasOpen ? `${spec.name}: restarted the Codex desktop app.` : `${spec.name}: opened the Codex desktop app.`);
+        console.log(restarted.wasOpen ? `${spec.name}: restarted the ${appLabel}.` : `${spec.name}: opened the ${appLabel}.`);
       } else {
         process.exitCode = 1;
-        console.error(`${spec.name}: ${restarted?.reason ?? "could not restart the Codex desktop app."} Restart it manually to load the configuration.`);
+        console.error(`${spec.name}: ${restarted?.reason ?? `could not restart ${appLabel}.`} Restart it manually to load the configuration.`);
       }
     } catch (error) {
       process.exitCode = 1;
-      console.error(`${spec.name}: configuration and gateway are ready, but the Codex desktop app could not be restarted: ${error.message}`);
+      console.error(`${spec.name}: configuration and gateway are ready, but ${appLabel} could not be restarted: ${error.message}`);
     }
     return;
   }
