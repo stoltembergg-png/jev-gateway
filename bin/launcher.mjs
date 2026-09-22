@@ -30,6 +30,7 @@ const ENV_FILES = [...(FROM_SOURCE && !process.env.JEV_SKIP_PROJECT_ENV ? [join(
  * @param {string} [spec.appLabel] friendly desktop app name, e.g. "Codex desktop app"
  * @param {(origin: string) => {changed: boolean, configPath: string, backupPath?: string}} [spec.setupApp] configure the desktop app
  * @param {() => Promise<{restarted: boolean, wasOpen?: boolean, reason?: string}>} [spec.restartApp] restart the desktop app
+ * @param {string[]} [spec.setupAppRequiresEnv] environment variables required before changing app config
  */
 /** Load the key for Jev and friends; real environment variables win over both files. */
 export function loadEnv() {
@@ -207,6 +208,11 @@ Environment (or ${ENV_FILES.at(-1)}):
   }
   if (flag === "--setup-app") {
     if (!spec.setupApp) return console.error(`${spec.name}: --setup-app is not available for ${spec.client}.`);
+    const missingSetupEnv = spec.setupAppRequiresEnv?.find((name) => !process.env[name]?.trim());
+    if (missingSetupEnv) {
+      process.exitCode = 1;
+      return console.error(`${spec.name}: ${appLabel} needs ${missingSetupEnv} to send requests through the gateway. Set it in this terminal and rerun ${spec.name} --setup-app. No OpenCode configuration was changed.`);
+    }
     await ensureRouter();
     let configured;
     try {

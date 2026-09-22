@@ -232,7 +232,8 @@ default model in `$XDG_CONFIG_HOME/opencode/opencode.json(c)` (by default,
 `~/.jev-gateway`, and restarts the desktop app automatically on Windows and macOS. On Linux, restart
 the app manually with `OPENAI_API_KEY` available to it. Existing settings and JSONC comments are
 preserved. The app uses the same `OPENAI_API_KEY` environment value as the CLI; setup does not copy
-the key into the config.
+the key into the config. Make sure this variable is set in the terminal running setup; otherwise,
+setup stops before changing the OpenCode config.
 
 OpenCode shares this global config between Desktop and the plain `opencode` CLI, so both use the
 gateway as their default after setup. The `jev-opencode` CLI launcher continues to work as before.

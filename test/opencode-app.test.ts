@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parse } from "jsonc-parser";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { vi } from "vitest";
 
@@ -189,6 +189,26 @@ describe("OpenCode Desktop setup", () => {
     const help = execFileSync(process.execPath, [launcherBin, "--gateway-help"], { encoding: "utf8", timeout: 30_000 });
     expect(help).toContain("--setup-app");
     expect(help).toContain("OpenCode Desktop app");
+  });
+
+  it("does not configure the app when OPENAI_API_KEY is unavailable", () => {
+    const home = mkdtempSync(join(tmpdir(), "jev-opencode-no-key-"));
+    const launcherBin = fileURLToPath(new URL("../bin/jev-opencode.mjs", import.meta.url));
+    const env: NodeJS.ProcessEnv = { ...process.env, USERPROFILE: home, APPDATA: join(home, "AppData", "Roaming"), JEV_SKIP_PROJECT_ENV: "1", JEV_OPENCODE_PORT: "0" };
+    delete env.OPENAI_API_KEY;
+    delete env.TYPESAFE_API_KEY;
+    delete env.OPENROUTER_API_KEY;
+    delete env.AI_GATEWAY_API_KEY;
+
+    try {
+      const result = spawnSync(process.execPath, [launcherBin, "--setup-app"], { encoding: "utf8", env, timeout: 30_000 });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("OPENAI_API_KEY");
+      expect(result.stderr).toContain("No OpenCode configuration was changed");
+      expect(existsSync(join(home, ".config", "opencode", "opencode.json"))).toBe(false);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   it("gracefully restarts only OpenCode Desktop and passes the CLI environment to it", async () => {

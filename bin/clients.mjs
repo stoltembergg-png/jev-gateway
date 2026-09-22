@@ -126,6 +126,7 @@ export const opencode = {
   portEnv: "JEV_OPENCODE_PORT",
   defaultPort: 8791,
   upstream: opencodeUpstream,
+  setupAppRequiresEnv: ["OPENAI_API_KEY"],
   setupApp: (origin) => configureOpenCodeDesktopApp(origin, opencodeModel()),
   restartApp: restartOpenCodeDesktopApp,
   upstreamHelp:

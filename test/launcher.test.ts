@@ -15,6 +15,7 @@ interface LauncherSpec {
   upstreamHelp: string;
   args?: (origin: string) => string[];
   env?: (origin: string) => Record<string, string>;
+  setupAppRequiresEnv?: string[];
   configHelp: (origin: string) => string;
 }
 
@@ -56,6 +57,7 @@ describe("jev-opencode spec", () => {
     expect(opencode.client).toBe("opencode");
     expect(opencode.portEnv).toBe("JEV_OPENCODE_PORT");
     expect(opencode.defaultPort).toBe(8791);
+    expect(opencode.setupAppRequiresEnv).toEqual(["OPENAI_API_KEY"]);
     expect([codex.defaultPort, claude.defaultPort]).not.toContain(opencode.defaultPort);
   });
 
