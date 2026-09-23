@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { configureCodexDesktopApp, restartCodexDesktopApp } from "./codex-app.mjs";
 
 /** Codex talks to a different backend depending on how the user logged in. */
 function codexUpstream() {
@@ -27,6 +28,12 @@ const codexProvider = (origin) => ({
   requires_openai_auth: "true",
 });
 
+const codexProviderConfig = (origin) =>
+  `model_provider = "jev-gateway"\n\n[model_providers.jev-gateway]\n` +
+  Object.entries(codexProvider(origin))
+    .map(([key, value]) => `${key} = ${value}`)
+    .join("\n");
+
 export const codex = {
   name: "jev-codex",
   client: "codex",
@@ -37,18 +44,21 @@ export const codex = {
     "JEV_CODEX_UPSTREAM_BASE_URL   where Codex traffic goes; default follows your Codex login:\n" +
     "                                ChatGPT login → https://chatgpt.com/backend-api/codex\n" +
     "                                API key       → https://api.openai.com/v1",
+  setupApp: configureCodexDesktopApp,
+  restartApp: restartCodexDesktopApp,
   args: (origin) => [
     "-c",
     `model_provider="jev-gateway"`,
     ...Object.entries(codexProvider(origin)).flatMap(([key, value]) => ["-c", `model_providers.jev-gateway.${key}=${value}`]),
   ],
   configHelp: (origin) =>
-    `# Save as ~/.codex/jev.config.toml, keep the gateway running (jev-codex --start),\n` +
-    `# then use: codex --profile jev\n` +
-    `model_provider = "jev-gateway"\n\n[model_providers.jev-gateway]\n` +
-    Object.entries(codexProvider(origin))
-      .map(([key, value]) => `${key} = ${value}`)
-      .join("\n"),
+    `# Codex CLI profile: save as ~/.codex/jev.config.toml, keep the gateway running\n` +
+    `# with jev-codex --start, then use: codex --profile jev\n` +
+    `${codexProviderConfig(origin)}\n\n` +
+    `# Codex desktop app and the default Codex CLI: merge these settings into\n` +
+    `# ~/.codex/config.toml, keep the gateway running with jev-codex --start,\n` +
+    `# and restart the app. The user-level provider setting applies to both.\n` +
+    `${codexProviderConfig(origin)}`,
 };
 
 export const claude = {

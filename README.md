@@ -55,9 +55,9 @@ The key works (Jev answered in 712 ms).
 jev-codex --dashboard
 ```
 
-That's it. Your existing login keeps working, nothing in `~/.codex`, `~/.claude`, or
-`~/.config/opencode` is changed, and plain `codex`, `claude`, and `opencode` still behave as
-before. Only sessions started with the `jev-` commands go through the gateway.
+Your existing login remains in use. By default, the launchers do not change client config files.
+By default, only sessions started with the `jev-` commands go through the gateway. Running
+`jev-codex --setup-app` opts the Codex desktop app and default `codex` CLI into it as well.
 
 ## What to expect
 
@@ -74,7 +74,7 @@ before. Only sessions started with the `jev-` commands go through the gateway.
 
 ## Commands
 
-All of these work with `jev-codex`, `jev-claude`, `jev-opencode` and `jev-gemini`.
+Most commands work with `jev-codex`, `jev-claude`, `jev-opencode` and `jev-gemini`; `--setup-app` is Codex-only.
 
 | Command | What it does |
 | --- | --- |
@@ -87,6 +87,7 @@ All of these work with `jev-codex`, `jev-claude`, `jev-opencode` and `jev-gemini
 | `jev-codex --start` | Start the gateway without opening the agent |
 | `jev-codex --stop` | Stop the background gateway (close your sessions first) |
 | `jev-codex --setup` | Choose where to reach Jev again, or change the key |
+| `jev-codex --setup-app` | Configure the Codex desktop app, start the gateway, and restart the app |
 | `jev-codex --print-config` | Print settings to point plain `codex` at the gateway permanently |
 | `jev-codex --gateway-help` | List all of the above |
 
@@ -160,6 +161,26 @@ The first-run key check will tell you at once if one of them disagrees.
 `jev-codex` reuses your existing Codex login. With a ChatGPT subscription the gateway forwards to
 `https://chatgpt.com/backend-api/codex`. With an API key it forwards to `https://api.openai.com/v1`.
 Override either with `JEV_CODEX_UPSTREAM_BASE_URL`.
+
+### Codex desktop app
+
+Run this command to configure the Codex desktop app in one step:
+
+```bash
+jev-codex --setup-app
+```
+
+The command starts the gateway, merges its provider settings into `~/.codex/config.toml`, creates a
+one-time backup of an existing config at `~/.jev-gateway/codex-config.before-app-setup.toml`, and opens
+or gracefully restarts the desktop app on Windows and macOS. If the app does not close cleanly, the
+command leaves it running and tells you to restart it manually. On Linux, the config and gateway are
+set up automatically, but the app must be restarted manually.
+
+The user-level provider setting is shared, so the default `codex` CLI also uses the gateway while
+it is active. `jev-codex` continues to configure its own CLI process directly. The app reuses its
+existing Codex login; the gateway does not need your OpenAI or ChatGPT credentials separately.
+
+`jev-codex --print-config` remains available for manual setup.
 
 Codex speaks the Responses API, so the gateway handles `POST /v1/responses`, including Codex's
 free-form tools such as `apply_patch`, tools declared inside the conversation, and compressed

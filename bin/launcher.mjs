@@ -27,6 +27,8 @@ const ENV_FILES = [...(FROM_SOURCE && !process.env.JEV_SKIP_PROJECT_ENV ? [join(
  * @param {(origin: string) => string[]} [spec.args]   extra leading arguments for the client
  * @param {(origin: string) => Record<string, string>} [spec.env]  extra environment for the client
  * @param {(origin: string) => string} spec.configHelp  how to wire the client up permanently
+ * @param {(origin: string) => {changed: boolean, configPath: string, backupPath?: string}} [spec.setupApp] configure Codex desktop
+ * @param {() => Promise<{restarted: boolean, wasOpen?: boolean, reason?: string}>} [spec.restartApp] restart the desktop app
  */
 /** Load the key for Jev and friends; real environment variables win over both files. */
 export function loadEnv() {
@@ -43,6 +45,9 @@ export async function runLauncher(spec) {
   const origin = `http://127.0.0.1:${port}`;
   const logFile = join(STATE_DIR, `${spec.client}.log`);
   const pidFile = join(STATE_DIR, `${spec.client}.pid`);
+  const appSetupHelp = spec.setupApp
+    ? `  ${spec.name} --setup-app      configure Codex app, start gateway, and restart it (Windows/macOS)\n`
+    : "";
 
   const help = `${spec.name}: ${spec.client} with tool selection routed through Jev
 
@@ -54,7 +59,7 @@ export async function runLauncher(spec) {
   ${spec.name} --start            start the gateway without opening ${spec.client}
   ${spec.name} --stop             stop the background gateway
   ${spec.name} --setup            choose where to reach Jev (TypeSafe, OpenRouter, Vercel) and set the key
-  ${spec.name} --print-config     how to point plain \`${spec.client}\` at the gateway permanently
+${appSetupHelp}  ${spec.name} --print-config     how to point plain \`${spec.client}\` at the gateway permanently
   ${spec.name} --gateway-help     this text (\`--help\` shows ${spec.client}'s own help)
 
 Environment (or ${ENV_FILES.at(-1)}):
@@ -195,6 +200,32 @@ Environment (or ${ENV_FILES.at(-1)}):
     if (await health()) {
       await stopRouter();
       console.log(`${spec.name}: the gateway will start with the new key the next time you run ${spec.name}.`);
+    }
+    return;
+  }
+  if (flag === "--setup-app") {
+    if (!spec.setupApp) return console.error(`${spec.name}: --setup-app is only available with jev-codex.`);
+    await ensureRouter();
+    let configured;
+    try {
+      configured = await spec.setupApp(origin);
+    } catch (error) {
+      process.exitCode = 1;
+      return console.error(`${spec.name}: could not configure Codex desktop: ${error.message}`);
+    }
+    console.log(`${spec.name}: Codex desktop configuration ${configured.changed ? "updated" : "already points to the gateway"} in ${configured.configPath}.`);
+    if (configured.backupPath) console.log(`${spec.name}: previous config saved to ${configured.backupPath}.`);
+    try {
+      const restarted = await spec.restartApp?.();
+      if (restarted?.restarted) {
+        console.log(restarted.wasOpen ? `${spec.name}: restarted the Codex desktop app.` : `${spec.name}: opened the Codex desktop app.`);
+      } else {
+        process.exitCode = 1;
+        console.error(`${spec.name}: ${restarted?.reason ?? "could not restart the Codex desktop app."} Restart it manually to load the configuration.`);
+      }
+    } catch (error) {
+      process.exitCode = 1;
+      console.error(`${spec.name}: configuration and gateway are ready, but the Codex desktop app could not be restarted: ${error.message}`);
     }
     return;
   }
